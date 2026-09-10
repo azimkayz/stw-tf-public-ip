@@ -1,70 +1,78 @@
-# stw-tf-public-ip
+# terraform-azurerm-public-ip
 
-Single-responsibility Terraform module that creates an Azure Public IP address.
+Creates a single Azure Public IP address. The `purpose` input is folded into the resource name, which is what makes this one module reusable for both the Bastion and NAT Gateway scenarios instead of needing a module per consumer.
 
 ## Scope
 
-Creates only the Public IP resource. Deliberately built to be reusable — the
-same module gets called twice in `stw-infra-live`: once for the Bastion
-Host, once for the NAT Gateway. Each caller passes a distinct `name_suffix`
-so the two IPs don't collide on name.
+**Creates**
+- One `azurerm_public_ip`
 
-## Naming — worked example
-
-project_name = "projecta", environment = "prod":
-
-- `name_suffix = "bastion"` → `pip-bastion-projecta-prod-southafricanorth`
-- `name_suffix = "nat"` → `pip-nat-projecta-prod-southafricanorth`
+**Does not create**
+- The resource that attaches this IP (Bastion Host or NAT Gateway) — owned by the `bastion` and `nat-gateway` modules respectively, which each take a Public IP ID as an input rather than creating their own
 
 ## Usage
 
 ```hcl
-module "bastion_public_ip" {
-  source = "github.com/azimkayz/stw-tf-public-ip?ref=v1.0.0"
+module "bastion_pip" {
+  source = "github.com/azimkayz/terraform-azurerm-public-ip?ref=v1.0.0"
 
-  project_name         = "projecta"
+  project_name         = "stw"
   environment          = "prod"
+  location             = "southafricanorth"
   resource_group_name  = module.resource_group.resource_group_name
-  name_suffix          = "bastion"
+  purpose               = "bastion"
 }
 
-module "nat_public_ip" {
-  source = "github.com/azimkayz/stw-tf-public-ip?ref=v1.0.0"
+module "nat_pip" {
+  source = "github.com/azimkayz/terraform-azurerm-public-ip?ref=v1.0.0"
 
-  project_name         = "projecta"
+  project_name         = "stw"
   environment          = "prod"
+  location             = "southafricanorth"
   resource_group_name  = module.resource_group.resource_group_name
-  name_suffix          = "nat"
+  purpose               = "nat"
 }
 ```
 
-## Requirements
+A minimal, runnable example is in [`examples/basic`](./examples/basic).
 
-| Name      | Version  |
-|-----------|----------|
-| terraform | >= 1.5.0 |
-| azurerm   | ~> 5.4.0   |
+## Naming
+
+Pattern: `pip-<purpose>-<project_name>-<environment>-<location>`
+
+Example: `pip-bastion-stw-prod-southafricanorth`
+
+`location` is validated to accept only `southafricanorth` — no other Azure region is permitted on this platform.
 
 ## Inputs
 
-| Name                 | Type        | Default          | Required | Description                       |
-|----------------------|-------------|------------------|----------|-------------------------------------|
-| project_name         | string      | n/a              | yes      | Short project identifier for naming |
-| environment          | string      | n/a              | yes      | Environment name for naming         |
-| location             | string      | southafricanorth | no       | Azure region (validated)            |
-| resource_group_name  | string      | n/a              | yes      | Existing resource group             |
-| name_suffix          | string      | n/a              | yes      | Purpose suffix, e.g. 'bastion' or 'nat' |
-| allocation_method    | string      | Static           | no       | Static or Dynamic                   |
-| sku                  | string      | Standard         | no       | Basic or Standard                   |
-| tags                 | map(string) | {}               | no       | Additional tags                     |
+| Name | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `project_name` | `string` | Yes | – | Short project name used to build the Public IP name. |
+| `environment` | `string` | Yes | – | Environment name, e.g. `dev`, `test`, `prod`. |
+| `location` | `string` | No | `"southafricanorth"` | Azure region. Validated to reject every value except `southafricanorth`. |
+| `resource_group_name` | `string` | Yes | – | Resource group the Public IP is deployed into. |
+| `purpose` | `string` | Yes | – | What this IP is used for, e.g. `"bastion"` or `"nat"`. Folded into the resource name — this is what makes the module reusable across consumers. |
+| `allocation_method` | `string` | No | `"Static"` | `Static` or `Dynamic`. |
+| `sku` | `string` | No | `"Standard"` | `Basic` or `Standard`. |
+| `zones` | `list(string)` | No | `null` | Optional availability zones. |
+| `tags` | `map(string)` | No | `{}` | Common tags applied to the Public IP. |
 
 ## Outputs
 
-| Name           | Description                                        |
-|----------------|-------------------------------------------------------|
-| public_ip_id   | Resource ID — consumed by Bastion or NAT Gateway module |
-| public_ip_name | Generated name of the Public IP                         |
+| Name | Description | Consumed by |
+|---|---|---|
+| `public_ip_id` | Resource ID of the Public IP. | `bastion` module (`bastion_public_ip_id`) and `nat-gateway` module (`nat_public_ip_id`). |
+| `public_ip_name` | Name of the Public IP. | Not currently consumed by another module; available for diagnostics or documentation. |
+| `public_ip_address` | The allocated IP address. | Not currently consumed by another module; useful for firewall allow-lists or DNS records outside this platform. |
+
+## Requirements
+
+| Name | Version |
+|---|---|
+| Terraform | `>= 1.5.0` |
+| azurerm provider | `~> 3.90` |
 
 ## Versioning
 
-Tagged `v1.0.0`. Consumers should pin to a tag, not a branch.
+Only tagged releases are supported for consumption — always pin `?ref=vX.Y.Z` in the `source` argument. `main` is not a supported consumption target and may change without notice.
